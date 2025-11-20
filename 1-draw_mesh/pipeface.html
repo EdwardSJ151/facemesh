@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MediaPipe Face Mesh Minimal</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #container {
+      position: relative;
+      width: 640px;
+      height: 480px;
+    }
+    #video {
+      display: none;
+    }
+    #output_canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <video id="video" playsinline></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+  </div>
+  <div id="status">Initializing...</div>
+
+  <!-- Bibliotecas do MediaPipe para câmera e desenho -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  
+  <!-- Face Mesh: detecta 478 pontos no rosto -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.min.js"></script>
+
+  <script>
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusEl = document.getElementById('status');
+
+    // Cria a instância do FaceMesh
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`;
+      }
+    });
+
+    // Configura as opções de detecção
+    faceMesh.setOptions({
+      maxNumFaces: 1, // Detecta apenas 1 rosto por vez
+      refineLandmarks: true, // Melhora a precisão dos pontos (íris, lábios)
+      minDetectionConfidence: 0.7, // Confiança mínima para detectar um rosto
+      minTrackingConfidence: 0.5 // Confiança mínima para rastrear o rosto
+    });
+
+    // Define o que fazer quando o FaceMesh processar cada frame
+    faceMesh.onResults(onResults);
+
+    function onResults(results) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // Desenha o frame da câmera no canvas
+      canvasCtx.drawImage(
+        results.image,
+        0,
+        0,
+        canvasElement.width,
+        canvasElement.height
+      );
+
+      // Se detectou rostos, desenha a malha (mesh)
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        statusEl.textContent = `Faces detected: ${results.multiFaceLandmarks.length}`;
+
+        for (const landmarks of results.multiFaceLandmarks) {
+          // Desenha a malha completa (tesselation)
+          drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION,
+            { color: '#32EEDB', lineWidth: 0.5 });
+
+          // Desenha o contorno do rosto
+          drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL,
+            { color: '#FF0000', lineWidth: 1 });
+
+          // Desenha os olhos
+          drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE,
+            { color: '#00FF00', lineWidth: 1 });
+          drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE,
+            { color: '#00FF00', lineWidth: 1 });
+
+          // Desenha os 478 pontos individuais
+          drawLandmarks(canvasCtx, landmarks, {
+            color: '#FFFFFF',
+            lineWidth: 0.5,
+            radius: 1
+          });
+        }
+      } else {
+        statusEl.textContent = 'No face detected';
+      }
+
+      canvasCtx.restore();
+    }
+
+    // Inicia a câmera e envia cada frame para o FaceMesh processar
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+
+    camera.start().then(() => {
+      statusEl.textContent = 'Camera started. Look at the camera.';
+    }).catch((err) => {
+      statusEl.textContent = 'Error starting camera: ' + err;
+      console.error(err);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Expression Tracking - MediaPipe Face Mesh</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #container {
+      position: relative;
+      width: 640px;
+      height: 480px;
+      margin-right: 20px;
+    }
+    #video {
+      display: none;
+    }
+    #output_canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 18px;
+    }
+    #expression-image {
+      width: 200px;
+      height: 200px;
+      object-fit: contain;
+      border: 2px solid #fff;
+    }
+    #app-layout {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+    }
+  </style>
+</head>
+
+<body>
+<div id="app-layout">
+  <div id="container">
+    <video id="video" playsinline></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+  </div>
+  <img id="expression-image" src="neutral.jpeg" alt="Expression">
+</div>
+
+<div id="status">Initializing...</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.min.js"></script>
+
+<script>
+  const videoElement = document.getElementById("video");
+  const canvasElement = document.getElementById("output_canvas");
+  const canvasCtx = canvasElement.getContext("2d");
+  const statusEl = document.getElementById("status");
+  const expressionImg = document.getElementById("expression-image");
+
+  const faceMesh = new FaceMesh({
+    locateFile: (file) =>
+      `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`
+  });
+
+  faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.5
+  });
+
+  faceMesh.onResults(onResults);
+
+  // -----------------------------
+  // Expression calculation
+  // -----------------------------
+  function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function getExpression(landmarks) {
+    // Landmarks da boca: lábio superior, inferior, cantos esquerdo/direito
+    const topLip = landmarks[13];
+    const bottomLip = landmarks[14];
+    const leftMouth = landmarks[61];
+    const rightMouth = landmarks[291];
+
+    // Landmarks dos olhos: pontos superior e inferior de cada olho
+    const leftEyeTop = landmarks[159];
+    const leftEyeBottom = landmarks[145];
+    const rightEyeTop = landmarks[386];
+    const rightEyeBottom = landmarks[374];
+
+    // Calcula abertura vertical da boca
+    const mouthOpen = distance(topLip, bottomLip);
+    // Calcula largura horizontal da boca (sorriso = boca mais larga)
+    const mouthWidth = distance(leftMouth, rightMouth);
+
+
+    // HAPPY: detecta sorriso pela largura da boca
+    const isHappy = mouthWidth > 0.14;
+
+    // SLEEPY: detecta olhos quase fechados
+    const isSleepy =
+      leftEyeOpen < 0.015 &&
+      rightEyeOpen < 0.015;
+
+    // Prioridade: Happy > Sleepy > Neutral
+    if (isHappy) return "Happy";
+    if (isSleepy) return "Sleepy";
+    
+    return "Neutral";
+  }
+
+function onResults(results) {
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+    canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+      const landmarks = results.multiFaceLandmarks[0];
+
+      // Detecta a expressão atual
+      const expression = getExpression(landmarks);
+      statusEl.textContent = `Expression: ${expression}`;
+
+      // Atualiza a imagem lateral conforme a expressão
+      if (expression === "Happy") {
+        expressionImg.src = "happy.jpeg";
+      } else if (expression === "Sleepy") {
+        expressionImg.src = "sleepy.jpeg";
+      } else {
+        expressionImg.src = "neutral.jpeg";
+      }
+
+      // Desenha a malha facial
+      drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION,
+        { color: "#32EEDB", lineWidth: 0.5 });
+      drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL,
+        { color: "#FF0000", lineWidth: 1 });
+
+      drawLandmarks(canvasCtx, landmarks,
+        { color: "#FFFFFF", lineWidth: 0.5, radius: 1 });
+    } else {
+      statusEl.textContent = "No face detected";
+    }
+
+    canvasCtx.restore();
+  }
+
+  const camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await faceMesh.send({ image: videoElement });
+    },
+    width: 640,
+    height: 480
+  });
+
+  camera.start().then(() => {
+    statusEl.textContent = "Camera started. Look at the camera.";
+  }).catch(err => {
+    statusEl.textContent = "Error starting camera: " + err;
+  });
+</script>
+</body>
+</html>

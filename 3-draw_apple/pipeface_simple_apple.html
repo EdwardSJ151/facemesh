@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MediaPipe Face Mesh Filter</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #container {
+      position: relative;
+      width: 640px;
+      height: 480px;
+    }
+    #video {
+      display: none;
+    }
+    #output_canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <video id="video" playsinline></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+  </div>
+  <div id="status">Initializing...</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/face_mesh.min.js"></script>
+
+  <script>
+    const videoElement = document.getElementById('video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusEl = document.getElementById('status');
+
+    // Landmark #10 é o topo da cabeça (dos 478 pontos disponíveis)
+    const HEAD_INDEX = 10;
+
+    // Carrega a imagem que será usada como filtro
+    const filterImg = new Image();
+    filterImg.src = 'apple.png';
+    let filterLoaded = false;
+    filterImg.onload = () => filterLoaded = true;
+
+    // Cria e configura o FaceMesh (igual ao script anterior)
+    const faceMesh = new FaceMesh({
+      locateFile: (file) =>
+        `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4.1633559619/${file}`
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults(onResults);
+
+    function onResults(results) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.image) {
+        canvasCtx.drawImage(results.image, 0, 0,
+          canvasElement.width, canvasElement.height);
+      }
+
+      if (results.multiFaceLandmarks &&
+          results.multiFaceLandmarks.length > 0) {
+
+        const landmarks = results.multiFaceLandmarks[0];
+        const head = landmarks[HEAD_INDEX];
+
+        if (head && filterLoaded) {
+
+          // Converte coordenadas normalizadas (0-1) para pixels
+          const x = head.x * canvasElement.width;
+          const y = head.y * canvasElement.height;
+
+          // Calcula a largura do rosto para escalar a imagem proporcionalmente
+          let minX = 1, maxX = 0;
+          for (const lm of landmarks) {
+            if (lm.x < minX) minX = lm.x;
+            if (lm.x > maxX) maxX = lm.x;
+          }
+          const faceWidth = (maxX - minX) * canvasElement.width;
+
+          // Define o tamanho da imagem baseado na largura do rosto
+          const imgWidth = faceWidth * 0.6; // 60% da largura do rosto
+          const imgHeight = imgWidth * (filterImg.height / filterImg.width);
+
+          // Desenha a imagem centralizada no ponto do topo da cabeça
+          canvasCtx.drawImage(
+            filterImg,
+            x - imgWidth / 2,    // centraliza horizontalmente
+            y - imgHeight / 2,   // centraliza verticalmente
+            imgWidth,
+            imgHeight
+          );
+        }
+
+        statusEl.textContent = 'Tracking head...';
+      } else {
+        statusEl.textContent = 'No face detected';
+      }
+
+      canvasCtx.restore();
+    }
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({ image: videoElement });
+      },
+      width: 640,
+      height: 480
+    });
+
+    camera.start()
+      .then(() => statusEl.textContent = 'Camera started.')
+      .catch((err) => {
+        statusEl.textContent = 'Error: ' + err;
+        console.error(err);
+      });
+  </script>
+</body>
+</html>
