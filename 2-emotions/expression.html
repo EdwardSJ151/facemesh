@@ -110,6 +110,9 @@ function getExpression(landmarks) {
     // Calcula largura horizontal da boca (sorriso = boca mais larga)
     const mouthWidth = distance(leftMouth, rightMouth);
 
+    // Calcula abertura de cada olho
+    const leftEyeOpen = distance(leftEyeTop, leftEyeBottom);
+    const rightEyeOpen = distance(rightEyeTop, rightEyeBottom);
 
     // HAPPY: detecta sorriso pela largura da boca
     const isHappy = mouthWidth > 0.14;
